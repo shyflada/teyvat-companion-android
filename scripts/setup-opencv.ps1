@@ -29,6 +29,8 @@ $build = Join-Path $root 'work/build-opencv-android'
 $profile = [Environment]::GetFolderPath('UserProfile')
 $profilePath = $profile.Replace('\','/')
 $sourcePath = $root.Replace('\','/')
+$sdkPath = (Resolve-Path -LiteralPath $SdkRoot).Path
+$ndkPath = (Resolve-Path -LiteralPath $NdkRoot).Path
 $pathFlags = '-ffile-prefix-map="{0}"=. -ffile-prefix-map="{1}"=.' -f $profilePath,$sourcePath
 $options = @(
     "-DCMAKE_TOOLCHAIN_FILE=$toolchain", "-DANDROID_SDK_ROOT=$SdkRoot", '-DANDROID_ABI=arm64-v8a',
@@ -46,7 +48,8 @@ foreach ($generated in @('version_string.tmp','modules/core/version_string.inc',
     $path = Join-Path $build $generated
     if (!(Test-Path -LiteralPath $path)) { continue }
     $contents = Get-Content -LiteralPath $path -Raw
-    foreach ($prefix in @($sourcePath,$profilePath,$root.Replace('\','\\'),$profile.Replace('\','\\'))) {
+    foreach ($prefix in @($sourcePath,$ndkPath.Replace('\','/'),$sdkPath.Replace('\','/'),$profilePath,
+            $root.Replace('\','\\'),$ndkPath.Replace('\','\\'),$sdkPath.Replace('\','\\'),$profile.Replace('\','\\'))) {
         $contents = $contents.Replace($prefix, '.', [StringComparison]::OrdinalIgnoreCase)
     }
     Set-Content -LiteralPath $path -Value $contents -NoNewline -Encoding utf8

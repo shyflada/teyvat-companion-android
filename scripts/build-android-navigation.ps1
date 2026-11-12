@@ -23,11 +23,12 @@ if (-not $JdkRoot) {
 if (-not $JdkRoot) { throw 'Pass a JDK 17 or later installation directory as -JdkRoot.' }
 
 $teyvatNdkToolchain = Join-Path $NdkRoot 'build/cmake/android.toolchain.cmake'
+$teyvatStrip = Join-Path $NdkRoot 'toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-strip.exe'
 $teyvatQtToolchain = Join-Path $QtRoot 'lib/cmake/Qt6/qt.toolchain.cmake'
 $teyvatDeployQt = Join-Path $QtHost 'bin/androiddeployqt.exe'
 $teyvatBuild = Join-Path $teyvatWork 'build-android-navigation'
 $teyvatDeploy = Join-Path $teyvatBuild ('android-deployment-' + [Guid]::NewGuid().ToString('N'))
-foreach ($teyvatFile in @($teyvatNdkToolchain, $teyvatQtToolchain, $teyvatDeployQt, (Join-Path $OpenCvDir 'OpenCVConfig.cmake'))) {
+foreach ($teyvatFile in @($teyvatNdkToolchain, $teyvatStrip, $teyvatQtToolchain, $teyvatDeployQt, (Join-Path $OpenCvDir 'OpenCVConfig.cmake'))) {
     if (-not (Test-Path -LiteralPath $teyvatFile -PathType Leaf)) { throw "Missing Android build dependency $teyvatFile." }
 }
 
@@ -44,7 +45,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Android navigation compilation failed.' }
     $teyvatNative = Join-Path $teyvatDeploy 'libs/arm64-v8a'
     New-Item -ItemType Directory -Force -Path $teyvatNative | Out-Null
-    Copy-Item -LiteralPath (Join-Path $teyvatBuild 'libteyvat_android_arm64-v8a.so') -Destination $teyvatNative -Force
+    & $teyvatStrip --strip-debug -o (Join-Path $teyvatNative 'libteyvat_android_arm64-v8a.so') (Join-Path $teyvatBuild 'libteyvat_android_arm64-v8a.so')
+    if ($LASTEXITCODE -ne 0) { throw 'Could not remove native debug paths.' }
     & $teyvatDeployQt --input (Join-Path $teyvatBuild 'android-teyvat_android-deployment-settings.json') `
         --output $teyvatDeploy --android-platform android-36 --jdk $JdkRoot --aux-mode
     if ($LASTEXITCODE -ne 0) { throw 'Qt Android dependency deployment failed.' }
