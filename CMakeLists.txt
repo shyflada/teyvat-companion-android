@@ -1,0 +1,88 @@
+cmake_minimum_required(VERSION 3.24)
+project(TeyvatCompanion VERSION 0.1.0 LANGUAGES CXX)
+
+include(CTest)
+option(TEYVAT_BUILD_ANDROID_NAVIGATION "Build the Android navigation library and application" ON)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    file(TO_CMAKE_PATH "$ENV{USERPROFILE}" teyvat_home)
+    if(teyvat_home)
+        add_compile_options("-ffile-prefix-map=${teyvat_home}=.")
+    endif()
+    add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.")
+endif()
+
+if(ANDROID AND TEYVAT_BUILD_ANDROID_NAVIGATION)
+    # NDK r27 exposes the C++20 cancellation types through libc++'s experimental library.
+    add_compile_options(-fexperimental-library)
+    add_link_options(-fexperimental-library)
+endif()
+
+function(teyvat_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive- /utf-8)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
+endfunction()
+
+add_library(teyvat_core STATIC src/model.cpp src/navigation.cpp src/route.cpp src/walk_surface.cpp)
+target_include_directories(teyvat_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(teyvat_core PUBLIC cxx_std_20)
+teyvat_warnings(teyvat_core)
+
+if(BUILD_TESTING)
+    add_executable(teyvat_core_tests tests/model_tests.cpp)
+    target_link_libraries(teyvat_core_tests PRIVATE teyvat_core)
+    teyvat_warnings(teyvat_core_tests)
+    foreach(suite IN ITEMS statuses markers coordinates)
+        add_test(NAME core.${suite} COMMAND teyvat_core_tests ${suite})
+    endforeach()
+    add_executable(teyvat_navigation_tests tests/navigation_tests.cpp)
+    target_link_libraries(teyvat_navigation_tests PRIVATE teyvat_core)
+    teyvat_warnings(teyvat_navigation_tests)
+    add_test(NAME core.navigation COMMAND teyvat_navigation_tests)
+    add_executable(teyvat_route_tests tests/route_tests.cpp)
+    target_link_libraries(teyvat_route_tests PRIVATE teyvat_core)
+    teyvat_warnings(teyvat_route_tests)
+    add_test(NAME core.routes_and_height COMMAND teyvat_route_tests)
+endif()
+
+if(TEYVAT_BUILD_ANDROID_NAVIGATION)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Sql)
+    if(NOT ANDROID)
+        find_package(Qt6 6.8 REQUIRED COMPONENTS Network)
+    endif()
+    set(OpenCV_STATIC ON)
+    find_package(OpenCV 4.12.0 EXACT REQUIRED COMPONENTS core imgproc features2d calib3d)
+    set(CMAKE_AUTOMOC ON)
+    add_library(teyvat_storage STATIC src/store.cpp src/map_store.cpp src/map_data.cpp src/detection.cpp src/opening_animation.cpp src/localization.cpp src/feature_localization.cpp src/camera_heading.cpp src/evaluation.cpp src/tracking.cpp src/official_map.cpp src/official_localization.cpp)
+    target_include_directories(teyvat_storage PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    target_link_libraries(teyvat_storage PUBLIC teyvat_core Qt6::Core Qt6::Gui Qt6::Sql)
+    if(NOT ANDROID)
+        target_link_libraries(teyvat_storage PUBLIC Qt6::Network)
+    endif()
+    target_include_directories(teyvat_storage SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+    target_link_libraries(teyvat_storage PRIVATE ${OpenCV_LIBS})
+    target_compile_features(teyvat_storage PUBLIC cxx_std_20)
+    teyvat_warnings(teyvat_storage)
+endif()
+
+if(TEYVAT_BUILD_ANDROID_NAVIGATION)
+    if(NOT ANDROID)
+        message(FATAL_ERROR "Use the Android Qt toolchain to build Teyvat Companion for Android.")
+    endif()
+    set_target_properties(teyvat_core teyvat_storage PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    qt_add_executable(teyvat_android
+        android-probe/native/android_main.cpp
+        android-probe/native/mobile_navigation.cpp
+        android-probe/native/mobile_map_sync.cpp)
+    target_link_libraries(teyvat_android PRIVATE teyvat_storage)
+    teyvat_warnings(teyvat_android)
+    set_target_properties(teyvat_android PROPERTIES
+        QT_ANDROID_PACKAGE_NAME "app.teyvatcompanion.probe"
+        QT_ANDROID_MIN_SDK_VERSION 29
+        QT_ANDROID_TARGET_SDK_VERSION 36
+        QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android-probe/native/android")
+endif()
